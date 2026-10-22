@@ -1,0 +1,134 @@
+name: Build Thunderbird Portable (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable Thunderbird version: latest, or pin e.g. 158.0.1'
+        required: true
+        default: 'latest'
+        type: string
+      language:
+        description: 'Official Mozilla language code (e.g. en-US, en-GB)'
+        required: true
+        default: 'en-US'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    name: Windows x64 Portable ZIP
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out builder repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install original-icon extractor
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir pefile==2024.8.26 Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
+
+      - name: Run offline builder tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Builder tests failed.' }
+
+      - name: Download official Mozilla Thunderbird installer
+        shell: pwsh
+        env:
+          TB_VERSION: ${{ inputs.version }}
+          TB_LANGUAGE: ${{ inputs.language }}
+        run: |
+          python scripts/download_official.py --version "$env:TB_VERSION" --language "$env:TB_LANGUAGE"
+          if ($LASTEXITCODE -ne 0) { throw 'Thunderbird download failed.' }
+
+      - name: Verify official installer signature
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Resolve-Path -LiteralPath 'work/download/ThunderbirdSetup.exe').Path
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          Write-Host "Signature status: $($signature.Status)"
+          Write-Host "Signer: $($signature.SignerCertificate.Subject)"
+          if ($signature.Status -ne 'Valid') { throw 'Installer signature is not valid. Refusing to package.' }
+          if ($signature.SignerCertificate.Subject -notmatch 'Mozilla|MZLA') {
+            throw 'Installer is not signed by the expected Mozilla/Thunderbird publisher.'
+          }
+
+      - name: Extract Thunderbird without installation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sevenZip = Get-Command '7z.exe' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
+          if (-not $sevenZip) { $sevenZip = 'C:\Program Files\7-Zip\7z.exe' }
+          if (-not (Test-Path -LiteralPath $sevenZip)) { throw '7-Zip not found on Windows runner.' }
+          New-Item -ItemType Directory -Force -Path 'work/extracted' | Out-Null
+          & $sevenZip 'x' '-y' '-owork/extracted' 'work/download/ThunderbirdSetup.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Official installer extraction failed.' }
+          python scripts/locate_thunderbird.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installed binary payload not found inside official installer.' }
+
+      - name: Extract original multi-resolution Thunderbird icon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $executable = (Get-Content -LiteralPath 'work/source_path.txt' -Raw).Trim()
+          python scripts/extract_icon.py "$executable" 'work/appicon.ico'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract original official application icon.' }
+          python scripts/icon_pngs.py 'work/appicon.ico' 'work/icons'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create PortableApps menu icon PNGs.' }
+
+      - name: Compile portable launcher and run headless self-test
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Windows .NET Framework C# compiler not found.' }
+          $source = (Resolve-Path -LiteralPath 'launcher/ThunderbirdPortable.cs').Path
+          $icon = (Resolve-Path -LiteralPath 'work/appicon.ico').Path
+          $out = Join-Path (Resolve-Path -LiteralPath 'work').Path 'ThunderbirdPortable.exe'
+          & $compiler '/nologo' '/target:winexe' '/platform:x64' '/optimize+' "/out:$out" "/win32icon:$icon" '/reference:System.Windows.Forms.dll' $source
+          if ($LASTEXITCODE -ne 0) { throw 'Launcher C# compilation failed.' }
+          if (-not (Test-Path -LiteralPath $out)) { throw 'Launcher was not produced.' }
+          $test = Start-Process -FilePath $out -ArgumentList '--portable-self-test' -PassThru -ErrorAction Stop
+          try {
+            if (-not $test.WaitForExit(15000)) {
+              try { $test.Kill() } catch { }
+              throw 'Headless self-test exceeded 15 seconds; stopping to prevent hung workflow.'
+            }
+            if ($test.ExitCode -ne 0) { throw "Launcher self-test failed: $($test.ExitCode)" }
+          }
+          finally { $test.Dispose() }
+          if (Test-Path -LiteralPath 'work/Data') { throw 'Self-test unexpectedly modified Data.' }
+          Write-Host 'PASS: headless test exited successfully.'
+
+      - name: Package verified PortableApps-style ZIP
+        shell: pwsh
+        env:
+          TB_LANGUAGE: ${{ inputs.language }}
+        run: |
+          python scripts/package_app.py --language "$env:TB_LANGUAGE"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
+          python scripts/verify_package.py
+          if ($LASTEXITCODE -ne 0) { throw 'Package verification failed.' }
+
+      - name: Upload portable ZIP only (1-day retention)
+        uses: actions/upload-artifact@v6
+        with:
+          name: Thunderbird-Portable-Windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
