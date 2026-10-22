@@ -97,9 +97,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
           if (-not (Test-Path -LiteralPath $compiler)) { throw 'Windows .NET Framework C# compiler not found.' }
           $source = (Resolve-Path -LiteralPath 'launcher/ThunderbirdPortable.cs').Path
+          $traceGuardSource = (Resolve-Path -LiteralPath 'launcher/TraceGuard.cs').Path
           $icon = (Resolve-Path -LiteralPath 'work/appicon.ico').Path
           $out = Join-Path (Resolve-Path -LiteralPath 'work').Path 'ThunderbirdPortable.exe'
-          & $compiler '/nologo' '/target:winexe' '/platform:x64' '/optimize+' "/out:$out" "/win32icon:$icon" '/reference:System.Windows.Forms.dll' $source
+          & $compiler '/nologo' '/target:winexe' '/platform:x64' '/optimize+' "/out:$out" "/win32icon:$icon" '/reference:System.Windows.Forms.dll' $source $traceGuardSource
           if ($LASTEXITCODE -ne 0) { throw 'Launcher C# compilation failed.' }
           if (-not (Test-Path -LiteralPath $out)) { throw 'Launcher was not produced.' }
           $test = Start-Process -FilePath $out -ArgumentList '--portable-self-test' -PassThru -ErrorAction Stop
@@ -111,8 +112,17 @@ jobs:
             if ($test.ExitCode -ne 0) { throw "Launcher self-test failed: $($test.ExitCode)" }
           }
           finally { $test.Dispose() }
+          $guardTest = Start-Process -FilePath $out -ArgumentList '--traceguard-self-test' -PassThru -ErrorAction Stop
+          try {
+            if (-not $guardTest.WaitForExit(15000)) {
+              try { $guardTest.Kill() } catch { }
+              throw 'TraceGuard self-test exceeded 15 seconds.'
+            }
+            if ($guardTest.ExitCode -ne 0) { throw "TraceGuard self-test failed: $($guardTest.ExitCode)" }
+          }
+          finally { $guardTest.Dispose() }
           if (Test-Path -LiteralPath 'work/Data') { throw 'Self-test unexpectedly modified Data.' }
-          Write-Host 'PASS: headless test exited successfully.'
+          Write-Host 'PASS: launcher and TraceGuard headless tests exited successfully.'
 
       - name: Package verified PortableApps-style ZIP
         shell: pwsh

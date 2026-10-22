@@ -88,7 +88,7 @@ def build(source, work, outdir, language="en-US"):
     info = root / "App" / "AppInfo"
     other = root / "Other"
     source_dir = other / "Source"
-    for folder in (app, info, source_dir, root / "Data" / "profile"):
+    for folder in (app, info, source_dir, root / "Data" / "profile", root / "Data" / "TraceGuard"):
         folder.mkdir(parents=True, exist_ok=True)
     copy_upstream(source, app)
     # Keep official binaries unmodified; policies is a supported Thunderbird
@@ -96,7 +96,7 @@ def build(source, work, outdir, language="en-US"):
     policy_dir = app / "distribution"
     policy_dir.mkdir(exist_ok=True)
     (policy_dir / "policies.json").write_text(
-        json.dumps({"policies": {"DisableAppUpdate": True}}, indent=2) + "\n", encoding="utf-8")
+        json.dumps({"policies": {"DisableAppUpdate": True, "BackgroundAppUpdate": False, "DisableTelemetry": True}}, indent=2) + "\n", encoding="utf-8")
     launcher = work / (APP_NAME + ".exe")
     icon = work / "appicon.ico"
     if not launcher.is_file() or not icon.is_file():
@@ -107,11 +107,12 @@ def build(source, work, outdir, language="en-US"):
         shutil.copy2(work / "icons" / f"appicon_{size}.png", info / f"appicon_{size}.png")
     (info / "appinfo.ini").write_text(make_appinfo(version, language), encoding="utf-8")
     shutil.copy2(ROOT / "launcher" / "ThunderbirdPortable.cs", source_dir / "ThunderbirdPortable.cs")
+    shutil.copy2(ROOT / "launcher" / "TraceGuard.cs", source_dir / "TraceGuard.cs")
     (source_dir / "SOURCE-NOTICE.txt").write_text(
         "Mozilla Thunderbird original binaries: https://www.thunderbird.net/\n"
         "Mozilla Thunderbird source: https://hg.mozilla.org/comm-central/\n"
         "Original Mozilla code is subject to applicable upstream licenses, including MPL 2.0.\n"
-        "Builder-specific Windows launcher source is included in this folder (MIT license).\n",
+        "Builder-specific Windows launcher and TraceGuard source are included here (MIT license).\n",
         encoding="utf-8")
     (other / "PORTABLE-README.txt").write_text(
         f"Mozilla Thunderbird Portable {version} (Windows x64, {language})\n\n"
@@ -125,6 +126,13 @@ def build(source, work, outdir, language="en-US"):
         "NEVER overwrite or delete your existing Data folder.\n"
         "In-app updates are disabled via App\\Thunderbird\\distribution\\policies.json.\n"
         "Run a new GitHub Actions build to get security updates.\n\n"
+        "TRACEGUARD: The root launcher checks Thunderbird host traces before\n"
+        "launch and cleans ONLY newly created empty folders and paired empty\n"
+        "Mozilla updater ID markers after Thunderbird exits.\n"
+        "The dynamic updater ID is never hard-coded. Installed profiles,\n"
+        "pre-existing files, non-empty directories and other Mozilla apps\n"
+        "are protected. Inspect Data\\TraceGuard\\last-run.log for results.\n"
+        "ProgramData cleanup may be skipped without user permissions.\n\n"
         "MOVE TO NEW PC: Move the complete folder. External folders or attachment\n"
         "paths set up in Thunderbird might use old drive letters; adjust them.\n"
         "OAuth logins may require signing in again. Do not run the same profile\n"

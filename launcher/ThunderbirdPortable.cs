@@ -25,6 +25,9 @@ internal static class ThunderbirdPortable
                 ? 0 : 10;
         }
 
+        if (args.Length == 1 && args[0] == "--traceguard-self-test")
+            return TraceGuard.SelfTest();
+
         try { return Launch(args); }
         catch (Exception ex)
         {
@@ -68,12 +71,23 @@ internal static class ThunderbirdPortable
                 // Keep crash reporter disabled to reduce host-side crash diagnostics.
                 // Some Windows integrations, browser OAuth and caches can still create host traces.
                 info.EnvironmentVariables["MOZ_CRASHREPORTER_DISABLE"] = "1";
-                using (Process p = Process.Start(info))
+                // Capture ONLY the traces that exist before this launcher starts Thunderbird.
+                // A pre-existing installed Thunderbird / Firefox profile is never cleaned.
+                TraceGuard traceGuard = new TraceGuard(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    Path.Combine(root, "Data", "TraceGuard", "last-run.log"), false);
+                try
                 {
-                    if (p == null) throw new Exception("Windows did not start Thunderbird.");
-                    p.WaitForExit();
-                    return p.ExitCode;
+                    using (Process p = Process.Start(info))
+                    {
+                        if (p == null) throw new Exception("Windows did not start Thunderbird.");
+                        p.WaitForExit();
+                        return p.ExitCode;
+                    }
                 }
+                finally { traceGuard.Cleanup(); }
             }
             finally { mutex.ReleaseMutex(); }
         }

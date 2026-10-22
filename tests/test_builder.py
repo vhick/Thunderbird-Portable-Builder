@@ -66,8 +66,52 @@ class BuilderTests(unittest.TestCase):
         source = (ROOT / "launcher/ThunderbirdPortable.cs").read_text(encoding="utf-8")
         self.assertIn('"Data", "profile"', source)
         self.assertIn('"-no-remote -profile "', source)
-        self.assertNotIn("Environment.SpecialFolder.ApplicationData", source)
+        self.assertIn("Environment.SpecialFolder.ApplicationData", source)  # read-only trace snapshot
+        self.assertIn("TraceGuard traceGuard", source)
+        self.assertIn("traceGuard.Cleanup()", source)
         self.assertNotIn("Registry.SetValue", source)
+
+    def test_traceguard_guards_old_state_and_dynamic_hashes(self):
+        source = (ROOT / "launcher/TraceGuard.cs").read_text(encoding="utf-8")
+        self.assertIn('oldAppDirs.Contains', source)
+        self.assertIn('oldUpdateDirs.Contains', source)
+        self.assertIn('oldLockFiles.Contains', source)
+        self.assertIn('oldUpdatesParents.Contains', source)
+        self.assertIn('IsHash(name.Substring', source)
+        self.assertIn('IsMozillaRunning()', source)
+        self.assertIn('IsLink(', source)
+        self.assertIn('Directory.Delete(path, false)', source)
+        self.assertNotIn('Directory.Delete(path, true)', source)
+        self.assertNotIn('Registry.', source)
+        self.assertIn('TraceGuard-Test-', source)
+
+    def test_windows_workflow_compiles_and_tests_traceguard(self):
+        workflow = (ROOT / ".github/workflows/build-portable.yml").read_text(encoding="utf-8")
+        self.assertIn("'launcher/TraceGuard.cs'", workflow)
+        self.assertIn(' $source $traceGuardSource', workflow)
+        self.assertIn('--traceguard-self-test', workflow)
+        self.assertIn('WaitForExit(15000)', workflow)
+
+    def test_updater_policy_reduces_host_traces(self):
+        with tempfile.TemporaryDirectory() as d:
+            place = pathlib.Path(d)
+            src = place / 'core'
+            src.mkdir()
+            for name, content in {"thunderbird.exe": b"exe", "omni.ja": b"runtime", "application.ini": b"[App]\nVersion=158.0.1\n"}.items():
+                (src / name).write_bytes(content)
+            work = place / 'work'
+            (work / 'icons').mkdir(parents=True)
+            (work / 'ThunderbirdPortable.exe').write_bytes(b'launcher')
+            (work / 'appicon.ico').write_bytes(b'icon')
+            for size in (16, 32, 128):
+                (work / 'icons' / f'appicon_{size}.png').write_bytes(b'icon png')
+            z = build(src, work, place / 'dist')
+            with zipfile.ZipFile(z) as archive:
+                policy = json.loads(archive.read('ThunderbirdPortable/App/Thunderbird/distribution/policies.json'))['policies']
+                self.assertEqual(policy['DisableAppUpdate'], True)
+                self.assertEqual(policy['DisableTelemetry'], True)
+                self.assertEqual(policy['BackgroundAppUpdate'], False)
+                self.assertIn('ThunderbirdPortable/Other/Source/TraceGuard.cs', archive.namelist())
 
     def test_full_fake_package_and_profile_is_empty(self):
         with tempfile.TemporaryDirectory() as d:

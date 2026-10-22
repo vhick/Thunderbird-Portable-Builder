@@ -20,8 +20,10 @@ REQUIRED = [
     "App/AppInfo/appicon_128.png",
     "Other/PORTABLE-README.txt",
     "Other/Source/ThunderbirdPortable.cs",
+    "Other/Source/TraceGuard.cs",
     "Data/",
     "Data/profile/",
+    "Data/TraceGuard/",
 ]
 
 
@@ -42,6 +44,9 @@ def inspect_package(path):
         policies = json.loads(archive.read(PREFIX + "App/Thunderbird/distribution/policies.json"))
         if policies.get("policies", {}).get("DisableAppUpdate") is not True:
             raise RuntimeError("DisableAppUpdate deployment policy missing")
+        for policy, expected in (("DisableTelemetry", True), ("BackgroundAppUpdate", False)):
+            if policies.get("policies", {}).get(policy) is not expected:
+                raise RuntimeError("Missing host-trace reduction policy: " + policy)
         config = configparser.ConfigParser(interpolation=None)
         config.read_string(archive.read(PREFIX + "App/AppInfo/appinfo.ini").decode("utf-8"))
         if config.get("Control", "Start") != "ThunderbirdPortable.exe":
