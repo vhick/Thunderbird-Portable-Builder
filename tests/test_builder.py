@@ -69,7 +69,8 @@ class BuilderTests(unittest.TestCase):
         self.assertIn("Environment.SpecialFolder.ApplicationData", source)  # read-only trace snapshot
         self.assertIn("TraceGuard traceGuard", source)
         self.assertIn("traceGuard.Cleanup()", source)
-        self.assertNotIn("Registry.SetValue", source)
+        self.assertIn("RegistryTraceGuard registryGuard", source)
+        self.assertIn("registryGuard.Cleanup()", source)
 
     def test_traceguard_guards_old_state_and_dynamic_hashes(self):
         source = (ROOT / "launcher/TraceGuard.cs").read_text(encoding="utf-8")
@@ -82,7 +83,7 @@ class BuilderTests(unittest.TestCase):
         self.assertIn('IsLink(', source)
         self.assertIn('Directory.Delete(path, false)', source)
         self.assertNotIn('Directory.Delete(path, true)', source)
-        self.assertNotIn('Registry.', source)
+        self.assertNotIn('Registry.SetValue', source)
         self.assertIn('TraceGuard-Test-', source)
 
     def test_windows_workflow_compiles_and_tests_traceguard(self):
@@ -90,7 +91,37 @@ class BuilderTests(unittest.TestCase):
         self.assertIn("'launcher/TraceGuard.cs'", workflow)
         self.assertIn(' $source $traceGuardSource', workflow)
         self.assertIn('--traceguard-self-test', workflow)
+        self.assertIn('--registrytrace-self-test', workflow)
+        self.assertIn("'launcher/RegistryTraceGuard.cs'", workflow)
         self.assertIn('WaitForExit(15000)', workflow)
+
+    def test_registry_guard_is_conservative_and_non_recursive(self):
+        src = (ROOT / "launcher/RegistryTraceGuard.cs").read_text(encoding="utf-8")
+        self.assertIn("RegistryHive.CurrentUser", src)
+        self.assertIn("RegistryHive.LocalMachine", src)
+        self.assertIn("CleanupAllowed", src)
+        self.assertIn("IsClearlyPortable", src)
+        self.assertIn("oldValues.ContainsKey", src)
+        self.assertIn("DeleteSubKey(childName, false)", src)
+        self.assertIn("Fingerprint(opened, entry.Key) != entry.Value", src)
+        self.assertIn("MozillaIsRunning()", src)
+        self.assertIn("RegistryTraceGuardTest_", src)
+        self.assertIn("PRESERVE unlinked/shared new value", src)
+        self.assertIn("UnrelatedEmpty", src)
+        self.assertIn("IsTraceLeaf(path)", src)
+        self.assertIn("if (!w.CleanupAllowed) continue", src)
+        # Recursive removal appears only in the intentionally owned temporary self-test.
+        self.assertEqual(src.count("DeleteSubKeyTree("), 1)
+        self.assertIn("Registry.CurrentUser.DeleteSubKeyTree(testRoot, false)", src)
+
+    def test_registry_guard_is_packaged_and_headlessly_tested(self):
+        workflow = (ROOT / ".github/workflows/build-portable.yml").read_text(encoding="utf-8")
+        self.assertIn("$registrySource", workflow)
+        self.assertIn("$source $traceGuardSource $registrySource", workflow)
+        self.assertIn("--registrytrace-self-test", workflow)
+        self.assertIn("Registry TraceGuard self-test exceeded 15 seconds", workflow)
+        package = (ROOT / "scripts/package_app.py").read_text(encoding="utf-8")
+        self.assertIn('"RegistryTraceGuard.cs"', package)
 
     def test_updater_policy_reduces_host_traces(self):
         with tempfile.TemporaryDirectory() as d:
@@ -112,6 +143,7 @@ class BuilderTests(unittest.TestCase):
                 self.assertEqual(policy['DisableTelemetry'], True)
                 self.assertEqual(policy['BackgroundAppUpdate'], False)
                 self.assertIn('ThunderbirdPortable/Other/Source/TraceGuard.cs', archive.namelist())
+                self.assertIn('ThunderbirdPortable/Other/Source/RegistryTraceGuard.cs', archive.namelist())
 
     def test_full_fake_package_and_profile_is_empty(self):
         with tempfile.TemporaryDirectory() as d:

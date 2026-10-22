@@ -28,6 +28,9 @@ internal static class ThunderbirdPortable
         if (args.Length == 1 && args[0] == "--traceguard-self-test")
             return TraceGuard.SelfTest();
 
+        if (args.Length == 1 && args[0] == "--registrytrace-self-test")
+            return RegistryTraceGuard.SelfTest();
+
         try { return Launch(args); }
         catch (Exception ex)
         {
@@ -78,6 +81,10 @@ internal static class ThunderbirdPortable
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                     Path.Combine(root, "Data", "TraceGuard", "last-run.log"), false);
+                // Record narrow registry scopes before Thunderbird starts; separately log
+                // new keys/values and remove only safe Thunderbird-specific path traces.
+                RegistryTraceGuard registryGuard = new RegistryTraceGuard(
+                    exe, Path.Combine(root, "Data", "TraceGuard", "registry.log"));
                 try
                 {
                     using (Process p = Process.Start(info))
@@ -87,7 +94,11 @@ internal static class ThunderbirdPortable
                         return p.ExitCode;
                     }
                 }
-                finally { traceGuard.Cleanup(); }
+                finally
+                {
+                    try { registryGuard.Cleanup(); }
+                    finally { traceGuard.Cleanup(); }
+                }
             }
             finally { mutex.ReleaseMutex(); }
         }

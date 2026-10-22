@@ -108,11 +108,12 @@ def build(source, work, outdir, language="en-US"):
     (info / "appinfo.ini").write_text(make_appinfo(version, language), encoding="utf-8")
     shutil.copy2(ROOT / "launcher" / "ThunderbirdPortable.cs", source_dir / "ThunderbirdPortable.cs")
     shutil.copy2(ROOT / "launcher" / "TraceGuard.cs", source_dir / "TraceGuard.cs")
+    shutil.copy2(ROOT / "launcher" / "RegistryTraceGuard.cs", source_dir / "RegistryTraceGuard.cs")
     (source_dir / "SOURCE-NOTICE.txt").write_text(
         "Mozilla Thunderbird original binaries: https://www.thunderbird.net/\n"
         "Mozilla Thunderbird source: https://hg.mozilla.org/comm-central/\n"
         "Original Mozilla code is subject to applicable upstream licenses, including MPL 2.0.\n"
-        "Builder-specific Windows launcher and TraceGuard source are included here (MIT license).\n",
+        "Builder-specific Windows launcher, file and registry TraceGuard source are included here (MIT license).\n",
         encoding="utf-8")
     (other / "PORTABLE-README.txt").write_text(
         f"Mozilla Thunderbird Portable {version} (Windows x64, {language})\n\n"
@@ -133,6 +134,14 @@ def build(source, work, outdir, language="en-US"):
         "pre-existing files, non-empty directories and other Mozilla apps\n"
         "are protected. Inspect Data\\TraceGuard\\last-run.log for results.\n"
         "ProgramData cleanup may be skipped without user permissions.\n\n"
+        "REGISTRY TRACEGUARD: A before/after scan logs Thunderbird-related HKCU\n"
+        "keys and selected HKLM/mail-registration keys in Data\\TraceGuard\\registry.log.\n"
+        "Automatic registry cleanup only removes NEW unchanged values linked\n"
+        "to this portable executable in known Thunderbird HKCU trace keys,\n"
+        "plus newly created EMPTY keys. HKLM, Windows default apps,\n"
+        "file associations, existing or non-attributable data are NEVER edited.\n"
+        "Registry cleanup is skipped if Firefox/other Thunderbird is running\n"
+        "or snapshots are incomplete. This is NOT a full registry sandbox.\n\n"
         "MOVE TO NEW PC: Move the complete folder. External folders or attachment\n"
         "paths set up in Thunderbird might use old drive letters; adjust them.\n"
         "OAuth logins may require signing in again. Do not run the same profile\n"

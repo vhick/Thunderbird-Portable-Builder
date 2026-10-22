@@ -21,6 +21,7 @@ REQUIRED = [
     "Other/PORTABLE-README.txt",
     "Other/Source/ThunderbirdPortable.cs",
     "Other/Source/TraceGuard.cs",
+    "Other/Source/RegistryTraceGuard.cs",
     "Data/",
     "Data/profile/",
     "Data/TraceGuard/",

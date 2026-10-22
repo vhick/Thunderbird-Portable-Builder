@@ -1,4 +1,4 @@
-// Thunderbird Portable TraceGuard v1.1
+// Thunderbird Portable TraceGuard v1.2
 // Conservative snapshot-based cleanup of newly created, EMPTY Thunderbird remnants.
 // No recursive file deletion, no registry edits, no elevation, no hard-coded installation hashes.
 // Code is MIT licensed as part of the Thunderbird Portable Builder.
@@ -47,7 +47,7 @@ internal sealed class TraceGuard
             programDataSnapshotOK = false;
             Log("SKIP ProgramData snapshot: " + e.GetType().Name + " " + e.Message);
         }
-        Log("TraceGuard v1.1; before-launch snapshot complete. No existing paths will be deleted.");
+        Log("TraceGuard v1.2; before-launch snapshot complete. No existing paths will be deleted.");
     }
 
     private IEnumerable<string> AppPaths()
